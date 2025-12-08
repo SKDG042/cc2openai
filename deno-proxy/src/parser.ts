@@ -1,5 +1,9 @@
-import { ParsedInvokeCall, ParserEvent } from "./types.ts";
+import { ParsedInvokeCall, ParsedThinkingCall, ParserEvent } from "./types.ts";
 import { log } from "./logging.ts";
+
+// 思考标签常量
+const THINKING_START_TAG = "<thinking>";
+const THINKING_END_TAG = "</thinking>";
 
 function parseInvokeXml(xml: string): ParsedInvokeCall | null {
   try {
@@ -37,6 +41,8 @@ export class ToolifyParser {
   private buffer = "";
   private captureBuffer = "";
   private capturing = false;
+  private thinkingMode = false;
+  private thinkingBuffer = "";
   private readonly events: ParserEvent[] = [];
 
   constructor(triggerSignal?: string) {
@@ -44,6 +50,15 @@ export class ToolifyParser {
   }
 
   feedChar(char: string) {
+    // 首先检查是否进入或退出思考模式
+    this.checkThinkingMode(char);
+    
+    if (this.thinkingMode) {
+      this.thinkingBuffer += char;
+      this.tryEmitThinking();
+      return;
+    }
+    
     if (!this.triggerSignal) {
       this.events.push({ type: "text", content: char });
       return;
@@ -92,11 +107,20 @@ export class ToolifyParser {
     if (this.buffer) {
       this.events.push({ type: "text", content: this.buffer });
     }
+    if (this.thinkingMode && this.thinkingBuffer) {
+      // 如果在思考模式下结束，发出剩余的思考内容
+      // 同样需要修复开头多一个 ">" 的问题
+      let thinkingContent = this.thinkingBuffer;
+      thinkingContent = thinkingContent.replace(/^\s*>\s*/, "");
+      this.events.push({ type: "thinking", content: thinkingContent });
+    }
     this.tryEmitInvokes(true);
     this.events.push({ type: "end" });
     this.buffer = "";
     this.captureBuffer = "";
     this.capturing = false;
+    this.thinkingBuffer = "";
+    this.thinkingMode = false;
   }
 
   consumeEvents(): ParserEvent[] {
@@ -212,5 +236,50 @@ export class ToolifyParser {
     // 清空缓冲区并退出捕获模式
     this.captureBuffer = "";
     this.capturing = false;
+  }
+  
+  private checkThinkingMode(char: string) {
+    // 检查是否进入思考模式
+    if (!this.thinkingMode) {
+      const tempBuffer = this.buffer + char;
+      if (tempBuffer.endsWith(THINKING_START_TAG)) {
+        log("debug", "Entering thinking mode", {
+          bufferBefore: this.buffer.slice(0, -THINKING_START_TAG.length + 1),
+        });
+        // 发出思考标签之前的文本
+        const textPortion = this.buffer.slice(0, -THINKING_START_TAG.length + 1);
+        if (textPortion) {
+          this.events.push({ type: "text", content: textPortion });
+        }
+        this.buffer = "";
+        this.thinkingMode = true;
+        this.thinkingBuffer = "";
+        return;
+      }
+    } else {
+      // 检查是否退出思考模式
+      if (this.thinkingBuffer.endsWith(THINKING_END_TAG)) {
+        log("debug", "Exiting thinking mode", {
+          thinkingContent: this.thinkingBuffer.slice(0, -THINKING_END_TAG.length),
+        });
+        // 发出思考内容（不包含结束标签）
+        let thinkingContent = this.thinkingBuffer.slice(0, -THINKING_END_TAG.length);
+        // 修复思考块开头多一个 ">" 的问题：由于当前解析逻辑在进入思考模式时，
+        // 会把 "<thinking>" 的结尾 ">" 作为首个思考字符写入 thinkingBuffer，
+        // 这里在真正发出事件前将前导的 ">" 和紧随其后的空白去掉。
+        thinkingContent = thinkingContent.replace(/^\s*>\s*/, "");
+        if (thinkingContent) {
+          this.events.push({ type: "thinking", content: thinkingContent });
+        }
+        this.thinkingBuffer = "";
+        this.thinkingMode = false;
+        return;
+      }
+    }
+  }
+  
+  private tryEmitThinking() {
+    // 暂时不实现流式思考内容发出，等待完整的思考块
+    // 这样可以保持与工具调用类似的处理方式
   }
 }

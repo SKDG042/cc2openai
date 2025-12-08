@@ -18,7 +18,12 @@ export interface ClaudeToolResultBlock {
   content: string;
 }
 
-export type ClaudeContentBlock = ClaudeTextBlock | ClaudeToolUseBlock | ClaudeToolResultBlock;
+export interface ClaudeThinkingBlock {
+  type: "thinking";
+  thinking: string;
+}
+
+export type ClaudeContentBlock = ClaudeTextBlock | ClaudeToolUseBlock | ClaudeToolResultBlock | ClaudeThinkingBlock;
 
 export interface ClaudeMessage {
   role: ClaudeRole;
@@ -69,7 +74,12 @@ export interface ParsedInvokeCall {
   arguments: Record<string, unknown>;
 }
 
+export interface ParsedThinkingCall {
+  content: string;
+}
+
 export type ParserEvent =
   | { type: "text"; content: string }
   | { type: "tool_call"; call: ParsedInvokeCall }
+  | { type: "thinking"; content: string }
   | { type: "end" };

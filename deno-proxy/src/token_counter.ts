@@ -15,7 +15,12 @@ export interface TokenCountResult {
  */
 export function estimateTokensFromText(text: string, model: string = "cl100k_base"): number {
   try {
-    return countTokensWithTiktoken(text, model);
+    const tokens = countTokensWithTiktoken(text, model);
+    // 防御性处理：如果第三方库返回了 NaN/Infinity，则退回到简单估算
+    if (!Number.isFinite(tokens) || tokens < 0) {
+      return Math.ceil(text.length / 4);
+    }
+    return tokens;
   } catch (error) {
     // 如果 tiktoken 失败，回退到简单的字符估算
     return Math.ceil(text.length / 4);
@@ -79,13 +84,24 @@ export async function estimateTokensLocally(
     });
   }
 
-  // 应用 token 倍数
-  const adjustedTokens = Math.ceil(estimatedTokens * config.tokenMultiplier);
+  // 应用 token 倍数（防御 NaN/非法配置）
+  const multiplier = Number.isFinite(config.tokenMultiplier) && config.tokenMultiplier > 0
+    ? config.tokenMultiplier
+    : 1.0;
+  const rawAdjusted = estimatedTokens * multiplier;
+  const adjustedTokens = Math.max(
+    1,
+    Math.ceil(
+      Number.isFinite(rawAdjusted)
+        ? rawAdjusted
+        : estimatedTokens,
+    ),
+  );
 
   await logRequest(requestId, "debug", "Local token estimation with tiktoken", {
     textLength: allText.length,
     estimatedTokens,
-    multiplier: config.tokenMultiplier,
+    multiplier,
     adjustedTokens,
     model: request.model,
     hasTools: !!(request.tools && request.tools.length > 0),

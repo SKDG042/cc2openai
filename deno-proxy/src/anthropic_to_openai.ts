@@ -14,15 +14,25 @@ const THINKING_END_TAG = "</thinking>";
 
 function normalizeBlocks(content: string | ClaudeContentBlock[], triggerSignal?: string): string {
   if (typeof content === "string") {
-    // 过滤掉用户输入中的所有 <invoke> 标签，防止注入攻击
-    // 注意：合法的工具调用会通过 tool_use block 转换，不会是纯字符串
-    return content.replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, "");
+    // 过滤掉纯文本中的工具协议标签，防止注入攻击或模型回显协议片段
+    // 注意：合法的工具调用 / 结果会通过 tool_use / tool_result block 转换，不应该以裸标签形式出现
+    return content
+      // 过滤掉 <invoke>...</invoke>
+      .replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, "")
+      // 过滤掉 <tool_result>...</tool_result>，包括模型自己错误输出的 tool_result 片段
+      .replace(/<tool_result\b[^>]*>[\s\S]*?<\/tool_result>/gi, "");
   }
   return content.map((block) => {
     if (block.type === "text") {
-      // 即使在 text block 中，也要过滤掉 <invoke> 标签
-      // 因为这些不是从 tool_use 转换来的，可能是用户注入的
-      return block.text.replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, "");
+      // 即使在 text block 中，也要过滤掉工具协议标签
+      // 因为这些不是从 tool_use/tool_result 转换来的，可能是用户注入或 assistant 自行输出的协议片段
+      return block.text
+        .replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, "")
+        .replace(/<tool_result\b[^>]*>[\s\S]*?<\/tool_result>/gi, "");
+    }
+    if (block.type === "thinking") {
+      // 将 Claude 的 thinking 块转换为上游的 <thinking> 标签
+      return `${THINKING_START_TAG}${block.thinking}${THINKING_END_TAG}`;
     }
     if (block.type === "tool_result") {
       return `<tool_result id="${block.tool_use_id}">${block.content ?? ""}</tool_result>`;
