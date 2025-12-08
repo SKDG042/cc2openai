@@ -9,6 +9,8 @@ const levelOrder: Record<LogLevel, number> = {
   error: 40,
 };
 
+// 检查是否禁用日志
+const LOGGING_DISABLED = Deno.env.get("LOGGING_DISABLED") === "true" || Deno.env.get("LOGGING_DISABLED") === "1";
 const configuredLevel = (Deno.env.get("LOG_LEVEL")?.toLowerCase() as LogLevel) ?? "info";
 
 // Request-specific log files
@@ -37,6 +39,9 @@ export async function closeRequestLog(requestId: string) {
 }
 
 export async function logRequest(requestId: string, level: LogLevel, message: string, meta?: Record<string, unknown>) {
+  // 如果日志被禁用，直接返回
+  if (LOGGING_DISABLED) return;
+  
   if (levelOrder[level] < levelOrder[configuredLevel]) return;
   
   const timestamp = new Date().toISOString();
@@ -78,6 +83,9 @@ export async function logRequest(requestId: string, level: LogLevel, message: st
 
 // Keep original log function for non-request logs (system logs)
 export function log(level: LogLevel, message: string, meta?: Record<string, unknown>) {
+  // 如果日志被禁用，直接返回
+  if (LOGGING_DISABLED) return;
+  
   if (levelOrder[level] < levelOrder[configuredLevel]) return;
   
   const timestamp = new Date().toISOString();

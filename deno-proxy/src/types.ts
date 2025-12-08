@@ -36,6 +36,12 @@ export interface ClaudeRequest {
   metadata?: Record<string, unknown>;
   tools?: ClaudeToolDefinition[];
   tool_choice?: unknown;
+  thinking?: ThinkingConfigParam;
+}
+
+export interface ThinkingConfigParam {
+  type: "enabled" | "disabled";
+  budget_tokens?: number;
 }
 
 export interface ClaudeToolDefinition {

@@ -7,6 +7,11 @@ import {
 } from "./types.ts";
 import { ProxyConfig } from "./config.ts";
 
+// 思考模式相关的常量定义
+const THINKING_HINT = "<antml\b:thinking_mode>interleaved</antml><antml\b:max_thinking_length>16000</antml>";
+const THINKING_START_TAG = "<thinking>";
+const THINKING_END_TAG = "</thinking>";
+
 function normalizeBlocks(content: string | ClaudeContentBlock[], triggerSignal?: string): string {
   if (typeof content === "string") {
     // 过滤掉用户输入中的所有 <invoke> 标签，防止注入攻击
@@ -61,9 +66,16 @@ export function mapClaudeToOpenAI(body: ClaudeRequest, config: ProxyConfig, trig
   }
 
   for (const message of body.messages) {
+    let content = normalizeBlocks(message.content, triggerSignal);
+    
+    // 如果是用户消息且思考模式已启用，在消息末尾添加思考提示符
+    if (message.role === "user" && body.thinking && body.thinking.type === "enabled") {
+      content = content + THINKING_HINT;
+    }
+    
     messages.push({
       role: mapRole(message.role),
-      content: normalizeBlocks(message.content, triggerSignal),
+      content: content,
     });
   }
 
