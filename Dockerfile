@@ -15,4 +15,4 @@ RUN deno cache deno-proxy/src/main.ts
 EXPOSE 4042
 
 # 运行服务
-CMD ["deno", "run", "--allow-net", "--allow-env", "deno-proxy/src/main.ts"]
+CMD ["deno", "run", "--allow-net", "--allow-env", "--allow-read", "--allow-write", "deno-proxy/src/main.ts"]
