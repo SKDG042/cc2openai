@@ -180,9 +180,14 @@ export function mapClaudeToOpenAI(body: ClaudeRequest, config: ProxyConfig, trig
     ?? body.model;
 
   // Claude 4.5 系列模型不允许同时指定 temperature 和 top_p
-  // 优先使用 temperature，只有在未指定 temperature 且指定了 top_p 时才使用 top_p
+  // 当启用 thinking 模式时，temperature 必须为 1，且不能设置 top_p
+  const thinkingEnabled = body.thinking?.type === "enabled";
   const samplingParams: { temperature?: number; top_p?: number } = {};
-  if (body.temperature !== undefined) {
+
+  if (thinkingEnabled) {
+    // thinking 模式下强制 temperature = 1，不设置 top_p
+    samplingParams.temperature = 1;
+  } else if (body.temperature !== undefined) {
     samplingParams.temperature = body.temperature;
   } else if (body.top_p !== undefined) {
     samplingParams.top_p = body.top_p;
