@@ -21,9 +21,21 @@ export interface ClaudeToolResultBlock {
 export interface ClaudeThinkingBlock {
   type: "thinking";
   thinking: string;
+  signature?: string;  // Claude API 需要的签名字段
 }
 
-export type ClaudeContentBlock = ClaudeTextBlock | ClaudeToolUseBlock | ClaudeToolResultBlock | ClaudeThinkingBlock;
+// 用于 redacted thinking 的类型（隐私保护场景）
+export interface ClaudeRedactedThinkingBlock {
+  type: "redacted_thinking";
+  data: string;
+}
+
+export type ClaudeContentBlock =
+  | ClaudeTextBlock
+  | ClaudeToolUseBlock
+  | ClaudeToolResultBlock
+  | ClaudeThinkingBlock
+  | ClaudeRedactedThinkingBlock;
 
 export interface ClaudeMessage {
   role: ClaudeRole;
