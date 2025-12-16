@@ -1,0 +1,26 @@
+services:
+  cc2openai:
+    image: skdg042/cc2openai:latest
+    ports:
+      - "4042:4042"
+    environment:
+      # 必需配置
+      UPSTREAM_BASE_URL: "http://your-upstream-api/v1/chat/completions"
+      UPSTREAM_API_KEY: "your-upstream-api-key"
+      PORT: 4042
+
+      # 可选：模型名称映射
+      MODEL_MAPPING: |
+        {
+          "claude-haiku-4-5-20251001": "claude-4.5-haiku",
+          "claude-sonnet-4-5-20250929": "claude-4.5-sonnet",
+          "claude-opus-4-5-20251101": "claude-4.5-opus"
+        }
+
+      # 可选：其他配置
+      # UPSTREAM_MODEL: "gpt-4"           # 全局覆盖模型名称
+      # CLIENT_API_KEY: "your-client-key" # 客户端认证密钥
+      # TIMEOUT_MS: 120000
+      # TOKEN_MULTIPLIER: 1.0
+      # LOG_LEVEL: info
+    restart: unless-stopped
