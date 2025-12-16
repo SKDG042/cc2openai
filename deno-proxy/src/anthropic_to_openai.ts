@@ -241,7 +241,8 @@ function filterEmptyTextBlocks(blocks: ClaudeContentBlock[]): ClaudeContentBlock
  * 2. 在 thinking 模式下修复消息格式
  */
 export function preprocessClaudeMessages(messages: ClaudeMessage[], thinkingEnabled: boolean): ClaudeMessage[] {
-  return messages.map((message) => {
+  // 首先进行基本的消息预处理
+  const processedMessages = messages.map((message) => {
     let content = message.content;
     let modified = false;
 
@@ -298,6 +299,53 @@ export function preprocessClaudeMessages(messages: ClaudeMessage[], thinkingEnab
     }
     return message;
   });
+
+  // 如果启用了 thinking 模式，确保最后一个 assistant 消息以 thinking block 开头
+  // 这是 Claude API 的强制要求：When `thinking` is enabled, a final `assistant` message must start with a thinking block
+  if (thinkingEnabled) {
+    // 找到最后一个 assistant 消息的索引
+    let lastAssistantIndex = -1;
+    for (let i = processedMessages.length - 1; i >= 0; i--) {
+      if (processedMessages[i].role === "assistant") {
+        lastAssistantIndex = i;
+        break;
+      }
+    }
+
+    if (lastAssistantIndex !== -1) {
+      const lastAssistant = processedMessages[lastAssistantIndex];
+      let content = lastAssistant.content;
+
+      // 检查是否已经以 thinking block 开头
+      let startsWithThinking = false;
+      if (Array.isArray(content) && content.length > 0) {
+        const firstBlock = content[0];
+        startsWithThinking = firstBlock.type === "thinking" || firstBlock.type === "redacted_thinking";
+      }
+
+      // 如果不是以 thinking block 开头，添加一个占位的 redacted_thinking block
+      if (!startsWithThinking) {
+        if (Array.isArray(content)) {
+          // 在数组开头添加 redacted_thinking block
+          content = [
+            { type: "redacted_thinking", data: "" } as ClaudeContentBlock,
+            ...content
+          ];
+        } else if (typeof content === "string") {
+          // 将字符串转换为数组，在开头添加 redacted_thinking block
+          content = [
+            { type: "redacted_thinking", data: "" } as ClaudeContentBlock,
+            { type: "text", text: content } as ClaudeContentBlock
+          ];
+        }
+
+        // 更新消息
+        processedMessages[lastAssistantIndex] = { ...lastAssistant, content };
+      }
+    }
+  }
+
+  return processedMessages;
 }
 
 // 导出辅助函数供测试使用
