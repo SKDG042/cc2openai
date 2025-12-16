@@ -102,11 +102,22 @@ export function mapClaudeToOpenAI(body: ClaudeRequest, config: ProxyConfig, trig
     ?? config.modelMapping[body.model]
     ?? body.model;
 
+  // Claude 4.5 系列模型不允许同时指定 temperature 和 top_p
+  // 优先使用 temperature，只有在未指定 temperature 且指定了 top_p 时才使用 top_p
+  const samplingParams: { temperature?: number; top_p?: number } = {};
+  if (body.temperature !== undefined) {
+    samplingParams.temperature = body.temperature;
+  } else if (body.top_p !== undefined) {
+    samplingParams.top_p = body.top_p;
+  } else {
+    // 都未指定时，默认使用 temperature
+    samplingParams.temperature = 0.2;
+  }
+
   return {
     model,
     stream: true,
-    temperature: body.temperature ?? 0.2,
-    top_p: body.top_p ?? 1,
+    ...samplingParams,
     max_tokens: body.max_tokens,
     messages,
   };
