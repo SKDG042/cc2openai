@@ -75,37 +75,41 @@ function ensureThinkingFirst(blocks: ClaudeContentBlock[]): ClaudeContentBlock[]
   return [...thinkingBlocks, ...otherBlocks];
 }
 
-/**
- * 检查 content 中是否包含 thinking 相关的内容
- */
-function hasThinkingContent(content: string | ClaudeContentBlock[]): boolean {
-  if (typeof content === "string") {
-    return content.includes(THINKING_START_TAG);
-  }
-  return content.some(block => block.type === "thinking" || block.type === "redacted_thinking");
-}
-
 function normalizeBlocks(content: string | ClaudeContentBlock[], triggerSignal?: string): string {
   if (typeof content === "string") {
     // 过滤掉纯文本中的工具协议标签，防止注入攻击或模型回显协议片段
     // 注意：合法的工具调用 / 结果会通过 tool_use / tool_result block 转换，不应该以裸标签形式出现
-    return content
+    const result = content
       // 过滤掉 <invoke>...</invoke>
       .replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, "")
       // 过滤掉 <tool_result>...</tool_result>，包括模型自己错误输出的 tool_result 片段
       .replace(/<tool_result\b[^>]*>[\s\S]*?<\/tool_result>/gi, "");
+    // 确保不返回空内容，如果过滤后为空则返回原始内容
+    const trimmed = result.trim();
+    if (trimmed) return trimmed;
+    // 如果原始内容也是空白，返回空字符串（由调用方处理）
+    return content.trim() || "";
   }
-  return content.map((block) => {
+
+  // 处理空数组的情况
+  if (content.length === 0) {
+    return "";
+  }
+
+  const result = content.map((block) => {
     if (block.type === "text") {
       // 即使在 text block 中，也要过滤掉工具协议标签
       // 因为这些不是从 tool_use/tool_result 转换来的，可能是用户注入或 assistant 自行输出的协议片段
-      return block.text
+      const filtered = block.text
         .replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, "")
         .replace(/<tool_result\b[^>]*>[\s\S]*?<\/tool_result>/gi, "");
+      // 跳过空白文本块
+      return filtered.trim() ? filtered : "";
     }
     if (block.type === "thinking") {
       // 将 Claude 的 thinking 块转换为上游的 <thinking> 标签
-      return `${THINKING_START_TAG}${block.thinking}${THINKING_END_TAG}`;
+      // 即使 thinking 内容为空也需要保留标签结构
+      return `${THINKING_START_TAG}${block.thinking || "[empty]"}${THINKING_END_TAG}`;
     }
     if (block.type === "redacted_thinking") {
       // redacted thinking 不输出具体内容，仅保留标记
@@ -130,6 +134,9 @@ function normalizeBlocks(content: string | ClaudeContentBlock[], triggerSignal?:
     }
     return "";
   }).join("\n");
+
+  // 过滤空行
+  return result.split("\n").filter(line => line.trim()).join("\n");
 }
 
 function mapRole(role: string): "user" | "assistant" {
@@ -161,6 +168,13 @@ export function mapClaudeToOpenAI(body: ClaudeRequest, config: ProxyConfig, trig
     // 如果是用户消息且思考模式已启用，在消息末尾添加思考提示符
     if (message.role === "user" && body.thinking && body.thinking.type === "enabled") {
       content = content + THINKING_HINT;
+    }
+
+    // 确保消息内容不为空
+    // Claude API 要求 text content blocks 必须包含非空白字符
+    if (!content.trim()) {
+      // 对于空内容，使用有意义的占位符避免 API 错误
+      content = "[empty message]";
     }
 
     messages.push({
@@ -206,84 +220,85 @@ export function mapClaudeToOpenAI(body: ClaudeRequest, config: ProxyConfig, trig
 }
 
 /**
- * 将 OpenAI 格式的消息转换回 Claude 格式
- * 主要用于处理包含 thinking 内容的 assistant 消息，确保符合 Claude API 的要求
- *
- * 当 thinking 模式启用时，Claude API 要求：
- * - 最后一个 assistant 消息必须以 thinking block 开头
- * - thinking blocks 必须保持结构化格式，不能是纯文本
+ * 过滤内容块中的空白 text block
+ * Claude API 要求：text content blocks must contain non-whitespace text
  */
-export function reconstructClaudeMessage(message: OpenAIChatMessage, thinkingEnabled: boolean): ClaudeMessage {
-  if (message.role === "assistant" && thinkingEnabled) {
-    // 检查是否包含 thinking 标签
-    if (message.content.includes(THINKING_START_TAG)) {
-      const blocks = parseThinkingFromText(message.content);
-
-      if (blocks.length > 0) {
-        // 确保 thinking blocks 在最前面
-        const orderedBlocks = ensureThinkingFirst(blocks);
-
-        return {
-          role: "assistant",
-          content: orderedBlocks
-        };
-      }
+function filterEmptyTextBlocks(blocks: ClaudeContentBlock[]): ClaudeContentBlock[] {
+  return blocks.filter(block => {
+    // 保留非 text 类型的 block
+    if (block.type !== "text") {
+      return true;
     }
-  }
-
-  return {
-    role: message.role === "assistant" ? "assistant" : "user",
-    content: message.content
-  };
+    // 只保留包含非空白字符的 text block
+    return block.text && block.text.trim().length > 0;
+  });
 }
 
 /**
- * 处理 Claude 请求中的历史消息，确保 thinking 模式下的消息格式正确
- * 这个函数在发送请求前调用，用于修复可能不符合 API 要求的消息格式
+ * 处理 Claude 请求中的历史消息，确保消息格式正确
+ * 这个函数在发送请求前调用，用于：
+ * 1. 过滤空白内容块（Claude API 要求 text blocks 必须包含非空白字符）
+ * 2. 在 thinking 模式下修复消息格式
  */
 export function preprocessClaudeMessages(messages: ClaudeMessage[], thinkingEnabled: boolean): ClaudeMessage[] {
-  if (!thinkingEnabled) {
-    return messages;
-  }
+  return messages.map((message) => {
+    let content = message.content;
+    let modified = false;
 
-  return messages.map((message, index) => {
-    // 只处理 assistant 消息
-    if (message.role !== "assistant") {
-      return message;
+    // 处理数组类型的 content
+    if (Array.isArray(content)) {
+      // 过滤空白 text blocks
+      const filteredBlocks = filterEmptyTextBlocks(content);
+
+      // 如果过滤后为空，添加占位符 block
+      if (filteredBlocks.length === 0) {
+        content = [{ type: "text", text: "[empty message]" }];
+        modified = true;
+      } else if (filteredBlocks.length !== content.length) {
+        content = filteredBlocks;
+        modified = true;
+      }
+
+      // 仅在 thinking 模式下处理 assistant 消息的 block 顺序
+      if (thinkingEnabled && message.role === "assistant" && Array.isArray(content)) {
+        const hasThinking = content.some(
+          block => block.type === "thinking" || block.type === "redacted_thinking"
+        );
+
+        if (hasThinking) {
+          // 确保 thinking blocks 在最前面
+          content = ensureThinkingFirst(content);
+          modified = true;
+        }
+      }
     }
+    // 处理字符串类型的 content
+    else if (typeof content === "string") {
+      // 检查是否为空白字符串
+      if (!content.trim()) {
+        content = "[empty message]";
+        modified = true;
+      }
+      // 在 thinking 模式下处理包含 thinking 标签的字符串
+      else if (thinkingEnabled && message.role === "assistant" && content.includes(THINKING_START_TAG)) {
+        const blocks = parseThinkingFromText(content);
 
-    // 如果 content 是数组，检查是否需要重排序
-    if (Array.isArray(message.content)) {
-      const hasThinking = message.content.some(
-        block => block.type === "thinking" || block.type === "redacted_thinking"
-      );
-
-      if (hasThinking) {
-        // 确保 thinking blocks 在最前面
-        const orderedBlocks = ensureThinkingFirst(message.content);
-        return {
-          ...message,
-          content: orderedBlocks
-        };
+        if (blocks.length > 0 && blocks.some(b => b.type === "thinking")) {
+          // 过滤空白 text blocks 并确保 thinking 在最前面
+          const filteredBlocks = filterEmptyTextBlocks(blocks);
+          content = ensureThinkingFirst(filteredBlocks.length > 0 ? filteredBlocks : blocks);
+          modified = true;
+        }
       }
     }
 
-    // 如果 content 是字符串且包含 thinking 标签，解析为 blocks
-    if (typeof message.content === "string" && message.content.includes(THINKING_START_TAG)) {
-      const blocks = parseThinkingFromText(message.content);
-
-      if (blocks.length > 0 && blocks.some(b => b.type === "thinking")) {
-        const orderedBlocks = ensureThinkingFirst(blocks);
-        return {
-          ...message,
-          content: orderedBlocks
-        };
-      }
+    // 如果内容被修改，返回新的消息对象
+    if (modified) {
+      return { ...message, content };
     }
-
     return message;
   });
 }
 
 // 导出辅助函数供测试使用
-export { parseThinkingFromText, ensureThinkingFirst, hasThinkingContent };
+export { parseThinkingFromText, ensureThinkingFirst };
