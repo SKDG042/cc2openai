@@ -89,6 +89,7 @@ curl http://localhost:3456/healthz
 | `UPSTREAM_BASE_URL` | 是 | - | 上游 OpenAI 兼容 API 地址 |
 | `UPSTREAM_API_KEY` | 否 | - | 上游 API 密钥 |
 | `UPSTREAM_MODEL` | 否 | - | 强制覆盖请求中的模型名称 |
+| `MODEL_MAPPING` | 否 | - | 模型名称映射（JSON 格式） |
 | `CLIENT_API_KEY` | 否 | - | 客户端认证密钥 |
 | `PORT` | 否 | 3456 | 服务监听端口 |
 | `HOST` | 否 | 0.0.0.0 | 服务监听地址 |
@@ -107,6 +108,27 @@ curl http://localhost:3456/healthz
 - 带后缀：`1.2x`、`x1.2`
 - 百分比：`120%`
 - 带引号：`"1.2"`
+
+### 模型名称映射
+
+`MODEL_MAPPING` 用于将请求中的模型名称自动转换为目标模型名称，格式为 JSON 对象：
+
+```bash
+# 环境变量
+MODEL_MAPPING='{"claude-sonnet-4-5-20250929":"claude-4.5-sonnet","claude-opus-4-5-20251101":"gpt-4-turbo"}'
+```
+
+**Docker Compose 配置（推荐）**：
+```yaml
+environment:
+  MODEL_MAPPING: |
+    {
+      "claude-sonnet-4-5-20250929": "claude-4.5-sonnet",
+      "claude-opus-4-5-20251101": "gpt-4-turbo"
+    }
+```
+
+**优先级**：`UPSTREAM_MODEL`（全局覆盖） > `MODEL_MAPPING`（精确映射） > 原始模型名
 
 ## API 端点
 

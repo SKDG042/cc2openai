@@ -10,6 +10,26 @@ export interface ProxyConfig {
   maxRequestsPerMinute: number;
   tokenMultiplier: number;
   autoPort: boolean;
+  modelMapping: Record<string, string>;
+}
+
+// 解析 MODEL_MAPPING 环境变量，格式为 JSON 对象
+// 例如: '{"claude-sonnet-4-5-20250929":"claude-4.5-sonnet"}'
+function loadModelMapping(): Record<string, string> {
+  const raw = Deno.env.get("MODEL_MAPPING");
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.error("MODEL_MAPPING must be a JSON object");
+      return {};
+    }
+    return parsed;
+  } catch {
+    console.error("MODEL_MAPPING is not valid JSON");
+    return {};
+  }
 }
 
 // 解析 TOKEN_MULTIPLIER，兼容常见字符串形式：
@@ -71,6 +91,7 @@ export function loadConfig(): ProxyConfig {
   const maxRequestsPerMinute = Number(Deno.env.get("MAX_REQUESTS_PER_MINUTE") ?? "10");
   // 解析 tokenMultiplier，并对非法值进行兜底，避免出现 NaN/Infinity
   const tokenMultiplier = parseTokenMultiplier(Deno.env.get("TOKEN_MULTIPLIER"));
+  const modelMapping = loadModelMapping();
 
   return {
     port,
@@ -84,5 +105,6 @@ export function loadConfig(): ProxyConfig {
     maxRequestsPerMinute,
     tokenMultiplier,
     autoPort,
+    modelMapping,
   };
 }
