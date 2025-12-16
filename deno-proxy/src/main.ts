@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std/http/server.ts";
 import { loadConfig, ProxyConfig } from "./config.ts";
 import { log, logRequest, closeRequestLog } from "./logging.ts";
-import { mapClaudeToOpenAI } from "./anthropic_to_openai.ts";
+import { mapClaudeToOpenAI, preprocessClaudeMessages } from "./anthropic_to_openai.ts";
 import { injectPrompt } from "./prompt_inject.ts";
 import { callUpstream } from "./upstream.ts";
 import { ToolifyParser } from "./parser.ts";
@@ -86,7 +86,13 @@ async function handleMessages(req: Request, requestId: string) {
     // 工具解析仅由是否传入 tools 决定：存在 tools 时启用工具协议，否则禁用。
     const hasTools = (body.tools ?? []).length > 0;
     const triggerSignal = hasTools ? randomTriggerSignal() : undefined;
-    const openaiBase = mapClaudeToOpenAI(body, config, triggerSignal);
+
+    // 预处理消息：确保 thinking 模式下 assistant 消息格式正确
+    const thinkingEnabled = body.thinking?.type === "enabled";
+    const preprocessedMessages = preprocessClaudeMessages(body.messages, thinkingEnabled);
+    const preprocessedBody = { ...body, messages: preprocessedMessages };
+
+    const openaiBase = mapClaudeToOpenAI(preprocessedBody, config, triggerSignal);
     const injected = injectPrompt(openaiBase, body.tools ?? [], triggerSignal);
     const upstreamReq = { ...openaiBase, messages: injected.messages };
 
