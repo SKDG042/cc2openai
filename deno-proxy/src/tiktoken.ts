@@ -19,13 +19,21 @@ function getEncoderForModel(model: string): any {
   }
 
   let encoder;
+
+  // Claude 模型直接使用 cl100k_base 编码器
+  if (model.startsWith("claude")) {
+    encoder = getEncoding("cl100k_base");
+    encoderCache.set(model, encoder);
+    return encoder;
+  }
+
   try {
     // 尝试根据模型获取对应的编码器
     // 使用类型断言来告诉 TypeScript 这是一个有效的 TiktokenModel
     encoder = encodingForModel(model as any);
   } catch (error) {
     // 如果模型不支持，回退到 cl100k_base (GPT-4 的编码器)
-    console.warn(`Model ${model} not found in tiktoken, falling back to cl100k_base`);
+    // console.warn(`Model ${model} not found in tiktoken, falling back to cl100k_base`);
     encoder = getEncoding("cl100k_base");
   }
 
